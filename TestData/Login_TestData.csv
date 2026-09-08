@@ -1,0 +1,7 @@
+testCaseId,scenario,username,password,captcha,expectedResult
+TC_LOGIN_001,Valid username password and verification code,test7777,123456,1111,SUCCESS
+TC_LOGIN_002,Invalid username with valid password and verification code,ggggggggg,123456,1111,"Wrong username/password, please re-enter."
+TC_LOGIN_003,Invalid password with valid username and verification code,sakusd10,123456789,1111,"Wrong username/password, please re-enter."
+TC_LOGIN_005,Invalid verification code with valid username and password,test7777,123456,9999,"Wrong verification code, please fill in again"
+TC_LOGIN_007,Special characters in username,xan@@001,123456,1111,"Please enter 6-12 characters (a-z 0-9). special characters are not allowed"
+TC_LOGIN_009,Valid credentials but account not yet activated,sakbot33,123456,1111,"Account suspended, please contact Customer Service"
