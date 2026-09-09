@@ -22,6 +22,10 @@ public class ConfigReader {
     }
 
     public static String get(String key) {
+        String override = System.getProperty(key);
+        if (override != null) {
+            return override;
+        }
         if (properties == null) {
             load();
         }

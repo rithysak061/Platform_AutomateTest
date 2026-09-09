@@ -10,6 +10,7 @@ import org.testng.annotations.BeforeMethod;
 public class BaseTest {
 
     private static final ThreadLocal<Page> currentPage = new ThreadLocal<>();
+    private static final ThreadLocal<LoginPage> currentLoginPage = new ThreadLocal<>();
     protected LoginPage loginPage;
     protected String baseUrl;
 
@@ -19,6 +20,7 @@ public class BaseTest {
         currentPage.set(page);
         baseUrl = ConfigReader.get("base.url");
         loginPage = new LoginPage(page);
+        currentLoginPage.set(loginPage);
         loginPage.open(baseUrl);
     }
 
@@ -26,9 +28,14 @@ public class BaseTest {
     public void tearDown() {
         PlaywrightFactory.tearDown();
         currentPage.remove();
+        currentLoginPage.remove();
     }
 
     public static Page getCurrentPage() {
         return currentPage.get();
+    }
+
+    public static LoginPage getCurrentLoginPage() {
+        return currentLoginPage.get();
     }
 }
