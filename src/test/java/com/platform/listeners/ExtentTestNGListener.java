@@ -15,12 +15,19 @@ import java.util.Map;
 
 public class ExtentTestNGListener implements ITestListener {
 
-    private static final ExtentReports extent = ExtentManager.getInstance();
+    private static ExtentReports extent;
     private static final Map<String, ExtentTest> testMap = new ConcurrentHashMap<>();
+
+    private static ExtentReports getExtent() {
+        if (extent == null) {
+            extent = ExtentManager.getInstance();
+        }
+        return extent;
+    }
 
     @Override
     public void onTestStart(ITestResult result) {
-        ExtentTest test = extent.createTest(result.getMethod().getMethodName(), result.getMethod().getDescription());
+        ExtentTest test = getExtent().createTest(result.getMethod().getMethodName(), result.getMethod().getDescription());
         testMap.put(testKey(result), test);
     }
 
@@ -48,14 +55,14 @@ public class ExtentTestNGListener implements ITestListener {
 
     @Override
     public void onTestSkipped(ITestResult result) {
-        ExtentTest test = extent.createTest(result.getMethod().getMethodName(), result.getMethod().getDescription());
+        ExtentTest test = getExtent().createTest(result.getMethod().getMethodName(), result.getMethod().getDescription());
         test.log(Status.SKIP, "Test skipped");
         testMap.put(testKey(result), test);
     }
 
     @Override
     public void onFinish(ITestContext context) {
-        extent.flush();
+        getExtent().flush();
     }
 
     private String testKey(ITestResult result) {

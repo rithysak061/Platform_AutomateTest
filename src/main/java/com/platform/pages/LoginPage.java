@@ -15,7 +15,7 @@ public class LoginPage {
 
     private final Page page;
 
-    private static final String LOGIN_TRIGGER_BUTTON = "button:has-text('Log In'), a:has-text('Log In'), text=/^log ?in$/i";
+    private static final String LOGIN_TRIGGER_BUTTON = "button:has-text('Log In'), a:has-text('Log In')";
     private static final String USERNAME_INPUT = "input[name*='user' i], input[placeholder*='username' i], input[placeholder*='account' i]";
     private static final String PASSWORD_INPUT = "input[type='password']";
     private static final String CAPTCHA_INPUT = "input[name*='captcha' i], input[placeholder*='verification' i], input[placeholder*='code' i]";

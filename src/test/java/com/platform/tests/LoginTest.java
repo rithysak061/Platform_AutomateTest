@@ -29,8 +29,7 @@ public class LoginTest extends BaseTest {
         return data;
     }
 
-    @Test(dataProvider = "loginData",
-            description = "Verify the Login functionality across valid/invalid username, password and verification code")
+    @Test(dataProvider = "loginData", description = "Verify the Login functionality across valid/invalid username, password and verification code")
     public void verifyLogin(String tcId, String scenario, String username, String password,
                              String captcha, String expectedResult) {
         loginPage.login(username, password, captcha);
@@ -69,8 +68,7 @@ public class LoginTest extends BaseTest {
      * same network. Enable deliberately and only against an environment you
      * are fine locking out for an hour.
      */
-    @Test(enabled = false,
-            description = "TC_LOGIN_006: Enter wrong verification code 15 times - IP should be blocked for 1h and captcha masked")
+    @Test(enabled = false, description = "TC_LOGIN_006: Enter wrong verification code 15 times - IP should be blocked for 1h and captcha masked")
     public void verifyCaptchaLockedAfter15InvalidAttempts() {
         String username = ConfigReader.get("username");
         String password = ConfigReader.get("password");
