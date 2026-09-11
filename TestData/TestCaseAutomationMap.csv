@@ -1,0 +1,10 @@
+testCaseId,testClass,testMethod,usesTestCaseId,enabled
+TC_LOGIN_001,LoginTest,verifyValidLogin,false,true
+TC_LOGIN_002,LoginTest,verifyInvalidUsername,false,true
+TC_LOGIN_003,LoginTest,verifyInvalidPassword,false,true
+TC_LOGIN_004,LoginTest,verifyAccountBlockedAfter3InvalidPasswords,false,true
+TC_LOGIN_005,LoginTest,verifyInvalidVerificationCode,false,true
+TC_LOGIN_006,LoginTest,verifyCaptchaLockedAfter15InvalidAttempts,false,false
+TC_LOGIN_007,LoginTest,verifyUsernameWithSpecialCharacters,false,true
+TC_LOGIN_008,LoginTest,verifyLoginWithGoogle,false,false
+TC_LOGIN_009,LoginTest,verifyLoginWithUnactivatedAccount,false,true

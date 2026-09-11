@@ -1,12 +1,15 @@
 package com.platform.base;
 
 import com.microsoft.playwright.Page;
+import com.platform.listeners.ExtentTestNGListener;
 import com.platform.pages.LoginPage;
 import com.platform.utility.ConfigReader;
 import com.platform.utility.PlaywrightFactory;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
+import org.testng.annotations.Listeners;
 
+@Listeners(ExtentTestNGListener.class)
 public class BaseTest {
 
     private static final ThreadLocal<Page> currentPage = new ThreadLocal<>();

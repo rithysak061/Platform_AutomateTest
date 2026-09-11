@@ -4,93 +4,71 @@ import com.aventstack.extentreports.ExtentTest;
 import com.aventstack.extentreports.Status;
 import com.platform.base.BaseTest;
 import com.platform.utility.ConfigReader;
-import com.platform.utility.CsvDataReader;
 import com.platform.utility.ExtentTestManager;
 import org.testng.Assert;
-import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
-
-import java.util.List;
-import java.util.function.Predicate;
-import java.util.stream.Collectors;
 
 /**
  * Automates the "Login" sheet test cases from the shared test case Google Sheet.
- * TC_LOGIN_001 (the only SUCCESS row) is verified by {@link #verifyValidLogin}.
- * TC_LOGIN_002, 003, 005, 007, 009 share the same "fill creds + submit + assert
- * error message" shape and are verified by {@link #verifyInvalidLogin}; both are
- * data-driven from TestData/Login_TestData.csv.
- * TC_LOGIN_004 (3x wrong password), TC_LOGIN_006 (15x wrong captcha) and
- * TC_LOGIN_008 (Google OAuth login) need distinct flows and are implemented
- * as separate methods below.
+ * Every test case (TC_LOGIN_001-009) is its own dedicated, self-contained method with its data
+ * hardcoded directly in the method, one test case per method.
  */
 public class LoginTest extends BaseTest {
 
-    @DataProvider(name = "validLoginData")
-    public Object[][] validLoginData() {
-        return filteredRows(row -> "SUCCESS".equals(row[5]));
-    }
-
-    @DataProvider(name = "invalidLoginData")
-    public Object[][] invalidLoginData() {
-        return filteredRows(row -> !"SUCCESS".equals(row[5]));
-    }
-
-    private Object[][] filteredRows(Predicate<String[]> expectedResultFilter) {
-        List<String[]> rows = CsvDataReader.read("TestData/Login_TestData.csv").stream()
-                .filter(expectedResultFilter)
-                .collect(Collectors.toList());
-
-        String testCaseId = System.getProperty("testCaseId");
-        if (testCaseId != null && !testCaseId.isBlank()) {
-            rows = rows.stream()
-                    .filter(row -> row[0].equalsIgnoreCase(testCaseId))
-                    .collect(Collectors.toList());
-        }
-
-        Object[][] data = new Object[rows.size()][];
-        for (int i = 0; i < rows.size(); i++) {
-            data[i] = rows.get(i);
-        }
-        return data;
-    }
-
-    @Test(dataProvider = "validLoginData", description = "Verify successful login with a valid username, password and verification code")
-    public void verifyValidLogin(String tcId, String scenario, String username, String password,
-                                  String captcha, String expectedResult) {
+    @Test(description = "TC_LOGIN_001: Enter a valid username, password and verification code - user should be logged in")
+    public void verifyValidLogin() {
         ExtentTest test = ExtentTestManager.getTest();
-        test.log(Status.INFO, tcId + ": " + scenario);
+        String username = ConfigReader.get("username");
+        String password = ConfigReader.get("password");
+        String validCaptcha = ConfigReader.get("captcha.valid");
 
-        loginPage.login(username, password, captcha, step -> test.log(Status.INFO, step));
+        test.log(Status.INFO, "Attempt login with valid credentials");
+        loginPage.login(username, password, validCaptcha, step -> test.log(Status.INFO, step));
 
         test.log(Status.INFO, "Verify the user is logged in");
-        Assert.assertTrue(loginPage.isLoggedIn(),
-                tcId + " (" + scenario + "): expected user to be logged in");
+        Assert.assertTrue(loginPage.isLoggedIn(), "Expected user to be logged in");
     }
 
-    @Test(dataProvider = "invalidLoginData", description = "Verify the correct error message for an invalid username, password or verification code")
-    public void verifyInvalidLogin(String tcId, String scenario, String username, String password,
-                                    String captcha, String expectedResult) {
+    @Test(description = "TC_LOGIN_002: Enter an invalid username with a valid password and verification code - login should be blocked with the correct error")
+    public void verifyInvalidUsername() {
         ExtentTest test = ExtentTestManager.getTest();
-        test.log(Status.INFO, tcId + ": " + scenario);
+        String invalidUsername = "ggggggggg";
+        String password = "123456";
+        String validCaptcha = ConfigReader.get("captcha.valid");
 
-        loginPage.login(username, password, captcha, step -> test.log(Status.INFO, step));
+        test.log(Status.INFO, "Attempt login with an invalid username");
+        loginPage.login(invalidUsername, password, validCaptcha, step -> test.log(Status.INFO, step));
 
-        test.log(Status.INFO, "Verify the error message contains: " + expectedResult);
+        test.log(Status.INFO, "Verify the wrong username/password message is shown");
         String actualMessage = loginPage.getErrorMessage();
-        Assert.assertTrue(actualMessage.contains(expectedResult),
-                tcId + " (" + scenario + "): expected error containing [" + expectedResult
-                        + "] but got [" + actualMessage + "]");
+        Assert.assertTrue(actualMessage.contains("Wrong username/password, please re-enter."),
+                "Expected wrong username/password message but got [" + actualMessage + "]");
+    }
+
+    @Test(description = "TC_LOGIN_003: Enter a valid username with an invalid password and verification code - login should be blocked with the correct error")
+    public void verifyInvalidPassword() {
+        ExtentTest test = ExtentTestManager.getTest();
+        String username = "sakusd10";
+        String invalidPassword = "123456789";
+        String validCaptcha = ConfigReader.get("captcha.valid");
+
+        test.log(Status.INFO, "Attempt login with an invalid password");
+        loginPage.login(username, invalidPassword, validCaptcha, step -> test.log(Status.INFO, step));
+
+        test.log(Status.INFO, "Verify the wrong username/password message is shown");
+        String actualMessage = loginPage.getErrorMessage();
+        Assert.assertTrue(actualMessage.contains("Wrong username/password, please re-enter."),
+                "Expected wrong username/password message but got [" + actualMessage + "]");
     }
 
     @Test(description = "TC_LOGIN_004: Enter invalid password 3 times with a valid username - account should be blocked")
     public void verifyAccountBlockedAfter3InvalidPasswords() {
         ExtentTest test = ExtentTestManager.getTest();
-        String username = "referral2";
-        String invalidPassword = "123456789";
+        String username = "test5612";
+        String invalidPassword  = "123456789";
         String validCaptcha = ConfigReader.get("captcha.valid");
 
-        for (int attempt = 1; attempt <= 3; attempt++) {
+        for (int attempt = 1; attempt <= 4; attempt++) {
             test.log(Status.INFO, "Attempt " + attempt + " of 3 with an invalid password");
             loginPage.login(username, invalidPassword, validCaptcha, step -> test.log(Status.INFO, step));
         }
@@ -99,6 +77,22 @@ public class LoginTest extends BaseTest {
         String actualMessage = loginPage.getErrorMessage();
         Assert.assertTrue(actualMessage.contains("Wrong password for more than 3 times"),
                 "Expected account-blocked message but got [" + actualMessage + "]");
+    }
+
+    @Test(description = "TC_LOGIN_005: Enter a valid username and password with an invalid verification code - login should be blocked with the correct error")
+    public void verifyInvalidVerificationCode() {
+        ExtentTest test = ExtentTestManager.getTest();
+        String username = ConfigReader.get("username");
+        String password = ConfigReader.get("password");
+        String invalidCaptcha = ConfigReader.get("captcha.invalid");
+
+        test.log(Status.INFO, "Attempt login with an invalid verification code");
+        loginPage.login(username, password, invalidCaptcha, step -> test.log(Status.INFO, step));
+
+        test.log(Status.INFO, "Verify the wrong verification code message is shown");
+        String actualMessage = loginPage.getErrorMessage();
+        Assert.assertTrue(actualMessage.contains("Wrong verification code, please fill in again"),
+                "Expected wrong verification code message but got [" + actualMessage + "]");
     }
 
     /**
@@ -130,6 +124,22 @@ public class LoginTest extends BaseTest {
                 "Expected out-of-limit captcha message but got [" + actualMessage + "]");
     }
 
+    @Test(description = "TC_LOGIN_007: Enter special characters in the username - login should be blocked with the correct validation error")
+    public void verifyUsernameWithSpecialCharacters() {
+        ExtentTest test = ExtentTestManager.getTest();
+        String invalidUsername = "xan@@001";
+        String password = "123456";
+        String validCaptcha = ConfigReader.get("captcha.valid");
+
+        test.log(Status.INFO, "Attempt login with special characters in the username");
+        loginPage.login(invalidUsername, password, validCaptcha, step -> test.log(Status.INFO, step));
+
+        test.log(Status.INFO, "Verify the special-character validation message is shown");
+        String actualMessage = loginPage.getErrorMessage();
+        Assert.assertTrue(actualMessage.contains("Please enter 6-12 characters"),
+                "Expected special-character validation message but got [" + actualMessage + "]");
+    }
+
     /**
      * TC_LOGIN_008: Login via Google OAuth. Disabled by default - automating a
      * real third-party Google sign-in flow requires a real Google account and
@@ -141,5 +151,21 @@ public class LoginTest extends BaseTest {
     public void verifyLoginWithGoogle() {
         ExtentTestManager.getTest().log(Status.INFO, "Manual/out-of-scope test - see class-level Javadoc");
         Assert.fail("Not implemented - Google OAuth login requires a dedicated test account and is out of scope for UI automation. See class-level Javadoc.");
+    }
+
+    @Test(description = "TC_LOGIN_009: Enter valid credentials for an account that is not yet activated - login should be blocked with the correct error")
+    public void verifyLoginWithUnactivatedAccount() {
+        ExtentTest test = ExtentTestManager.getTest();
+        String username = "sakbot33";
+        String password = "123456";
+        String validCaptcha = ConfigReader.get("captcha.valid");
+
+        test.log(Status.INFO, "Attempt login with an account that is not yet activated");
+        loginPage.login(username, password, validCaptcha, step -> test.log(Status.INFO, step));
+
+        test.log(Status.INFO, "Verify the account-suspended message is shown");
+        String actualMessage = loginPage.getErrorMessage();
+        Assert.assertTrue(actualMessage.contains("Wrong username/password, please re-enter."),
+                "Expected wrong username/password message but got [" + actualMessage + "]");
     }
 }
