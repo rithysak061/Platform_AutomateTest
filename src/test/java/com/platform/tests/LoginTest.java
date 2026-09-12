@@ -15,7 +15,7 @@ import org.testng.annotations.Test;
  */
 public class LoginTest extends BaseTest {
 
-    @Test(description = "TC_LOGIN_001: Enter a valid username, password and verification code - user should be logged in")
+    @Test(description = "TC_LOGIN_001: xx Enter a valid username, password and verification code - user should be logged in")
     public void verifyValidLogin() {
         ExtentTest test = ExtentTestManager.getTest();
         String username = ConfigReader.get("username");
