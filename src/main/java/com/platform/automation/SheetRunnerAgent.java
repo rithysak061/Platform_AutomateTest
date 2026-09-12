@@ -14,10 +14,13 @@ import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Polls the tabs listed in sheet.watchedTabs for:
- *  - test-case rows whose RUN checkbox is checked - runs that one Maven/TestNG test locally.
- *  - the whole-suite RUN checkbox (one row above the header) - runs the tab's entire test class,
- *    named by sheet.suiteClass.<Tab> in Config/config.properties.
+ * Polls:
+ *  - the tabs listed in sheet.watchedTabs, for test-case rows whose RUN checkbox is checked
+ *    (runs that one Maven/TestNG test) and for each tab's whole-suite RUN checkbox (one row
+ *    above the header, runs the tab's entire test class named by sheet.suiteClass.<Tab>).
+ *  - the "Test Suite Automate" dashboard tab (see MasterSheetLayout), independently of
+ *    sheet.watchedTabs, for the same kind of whole-suite RUN checkbox, one row per test-case tab
+ *    found anywhere in the spreadsheet.
  * Either way the result is written back as AUTOMATION STATUS / LAST RUN / a clickable REPORT
  * link. Run SheetSetupTool once first to add those columns and checkboxes. Start with:
  *   mvn compile exec:java -Dexec.mainClass=com.platform.automation.SheetRunnerAgent
@@ -58,6 +61,7 @@ public class SheetRunnerAgent {
                 for (String tab : watchedTabs) {
                     processTab(client, tab, mappings);
                 }
+                processMasterSheet(client);
             } catch (Exception e) {
                 System.err.println("Poll cycle failed: " + e.getMessage());
             }
@@ -87,7 +91,7 @@ public class SheetRunnerAgent {
         if (suiteRow >= 0 && suiteRow < rows.size()
                 && "TRUE".equalsIgnoreCase(TestCaseSheetLayout.cell(rows.get(suiteRow), layout.runCol()))) {
             client.updateCell(tab, suiteRow, layout.runCol(), "FALSE");
-            runSuite(client, tab, suiteRow, layout);
+            runSuite(client, tab, tab, suiteRow, layout.statusCol(), layout.lastRunCol(), layout.reportCol());
         }
 
         int dataStart = layout.headerRowIndex() + 1;
@@ -118,26 +122,57 @@ public class SheetRunnerAgent {
 
         String testFilter = mapping.testClass() + "#" + mapping.testMethod();
         String testCaseIdArg = mapping.usesTestCaseId() ? testCaseId : null;
-        runAndRecord(client, tab, rowIndex, layout, testFilter, testCaseIdArg);
+        runAndRecord(client, tab, rowIndex, layout.statusCol(), layout.lastRunCol(), layout.reportCol(),
+                testFilter, testCaseIdArg);
     }
 
-    private static void runSuite(SheetsClient client, String tab, int rowIndex, TestCaseSheetLayout layout) {
-        String suiteClass;
-        try {
-            suiteClass = ConfigReader.get("sheet.suiteClass." + tab);
-        } catch (RuntimeException e) {
-            client.updateCell(tab, rowIndex, layout.statusCol(), STATUS_NOT_CONFIGURED);
+    private static void processMasterSheet(SheetsClient client) {
+        List<List<Object>> rows = client.readRange("'" + MasterSheetLayout.SHEET_NAME + "'!A1:E500");
+        Optional<MasterSheetLayout> layoutOpt = MasterSheetLayout.locate(rows);
+        if (layoutOpt.isEmpty()) {
+            return; // dashboard hasn't been wired up yet - run SheetSetupTool first
+        }
+        MasterSheetLayout layout = layoutOpt.get();
+        if (layout.runCol() < 0 || layout.statusCol() < 0) {
             return;
         }
 
-        client.updateCell(tab, rowIndex, layout.statusCol(), STATUS_RUNNING);
-        System.out.println("Running entire suite for tab \"" + tab + "\" (" + suiteClass + ")...");
-
-        runAndRecord(client, tab, rowIndex, layout, suiteClass, null);
+        for (int rowIndex = 1; rowIndex < rows.size(); rowIndex++) {
+            List<Object> row = rows.get(rowIndex);
+            String tabName = TestCaseSheetLayout.cell(row, layout.tabNameCol());
+            if (tabName.isEmpty() || !"TRUE".equalsIgnoreCase(TestCaseSheetLayout.cell(row, layout.runCol()))) {
+                continue;
+            }
+            client.updateCell(MasterSheetLayout.SHEET_NAME, rowIndex, layout.runCol(), "FALSE");
+            runSuite(client, tabName, MasterSheetLayout.SHEET_NAME, rowIndex,
+                    layout.statusCol(), layout.lastRunCol(), layout.reportCol());
+        }
     }
 
-    private static void runAndRecord(SheetsClient client, String tab, int rowIndex, TestCaseSheetLayout layout,
-                                      String testFilter, String testCaseId) {
+    /**
+     * Runs the whole test class configured for suiteLookupTab (sheet.suiteClass.<suiteLookupTab>)
+     * and writes the result into targetSheet/targetRow - which may be suiteLookupTab's own tab
+     * (the per-tab "RUN ENTIRE SUITE" row) or the "Test Suite Automate" dashboard (one row per
+     * tab, results recorded there instead of on the tab itself).
+     */
+    private static void runSuite(SheetsClient client, String suiteLookupTab, String targetSheet, int targetRow,
+                                  int statusCol, int lastRunCol, int reportCol) {
+        String suiteClass;
+        try {
+            suiteClass = ConfigReader.get("sheet.suiteClass." + suiteLookupTab);
+        } catch (RuntimeException e) {
+            client.updateCell(targetSheet, targetRow, statusCol, STATUS_NOT_CONFIGURED);
+            return;
+        }
+
+        client.updateCell(targetSheet, targetRow, statusCol, STATUS_RUNNING);
+        System.out.println("Running entire suite for tab \"" + suiteLookupTab + "\" (" + suiteClass + ")...");
+
+        runAndRecord(client, targetSheet, targetRow, statusCol, lastRunCol, reportCol, suiteClass, null);
+    }
+
+    private static void runAndRecord(SheetsClient client, String targetSheet, int targetRow, int statusCol,
+                                      int lastRunCol, int reportCol, String testFilter, String testCaseId) {
         long startTime = System.currentTimeMillis();
         boolean passed;
         try {
@@ -149,13 +184,13 @@ public class SheetRunnerAgent {
 
         String reportFileName = findLatestReport(new File("reports"), startTime).orElse(null);
 
-        if (layout.lastRunCol() >= 0) {
-            client.updateCell(tab, rowIndex, layout.lastRunCol(), LocalDateTime.now().format(TIMESTAMP));
+        if (lastRunCol >= 0) {
+            client.updateCell(targetSheet, targetRow, lastRunCol, LocalDateTime.now().format(TIMESTAMP));
         }
-        if (layout.reportCol() >= 0) {
-            client.updateCell(tab, rowIndex, layout.reportCol(), reportLinkFormula(reportFileName));
+        if (reportCol >= 0) {
+            client.updateCell(targetSheet, targetRow, reportCol, reportLinkFormula(reportFileName));
         }
-        client.updateCell(tab, rowIndex, layout.statusCol(), passed ? STATUS_PASSED : STATUS_FAILED);
+        client.updateCell(targetSheet, targetRow, statusCol, passed ? STATUS_PASSED : STATUS_FAILED);
     }
 
     private static boolean runMaven(String testFilter, String testCaseId) throws IOException, InterruptedException {

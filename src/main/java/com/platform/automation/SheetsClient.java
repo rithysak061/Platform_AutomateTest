@@ -4,6 +4,7 @@ import com.google.api.client.googleapis.javanet.GoogleNetHttpTransport;
 import com.google.api.client.json.gson.GsonFactory;
 import com.google.api.services.sheets.v4.Sheets;
 import com.google.api.services.sheets.v4.SheetsScopes;
+import com.google.api.services.sheets.v4.model.AddSheetRequest;
 import com.google.api.services.sheets.v4.model.AppendDimensionRequest;
 import com.google.api.services.sheets.v4.model.BatchUpdateSpreadsheetRequest;
 import com.google.api.services.sheets.v4.model.BooleanCondition;
@@ -14,6 +15,7 @@ import com.google.api.services.sheets.v4.model.GridRange;
 import com.google.api.services.sheets.v4.model.RepeatCellRequest;
 import com.google.api.services.sheets.v4.model.Request;
 import com.google.api.services.sheets.v4.model.Sheet;
+import com.google.api.services.sheets.v4.model.SheetProperties;
 import com.google.api.services.sheets.v4.model.SetDataValidationRequest;
 import com.google.api.services.sheets.v4.model.Spreadsheet;
 import com.google.api.services.sheets.v4.model.ValueRange;
@@ -95,6 +97,44 @@ public class SheetsClient {
             return values == null ? Collections.emptyList() : values;
         } catch (IOException e) {
             throw new RuntimeException("Unable to read range: " + a1Range, e);
+        }
+    }
+
+    /**
+     * Reads several ranges (each possibly on a different tab) in one API call, counting as a
+     * single request against the Sheets read quota regardless of how many ranges are included -
+     * essential for scanning every tab in a large spreadsheet without hitting the
+     * 60-reads/minute-per-user quota that a per-tab loop would blow through.
+     */
+    public List<List<List<Object>>> batchReadRanges(List<String> a1Ranges) {
+        if (a1Ranges.isEmpty()) {
+            return List.of();
+        }
+        try {
+            var response = service.spreadsheets().values()
+                    .batchGet(spreadsheetId)
+                    .setRanges(a1Ranges)
+                    .execute();
+            return response.getValueRanges().stream()
+                    .map(vr -> vr.getValues() == null ? List.<List<Object>>of() : vr.getValues())
+                    .toList();
+        } catch (IOException e) {
+            throw new RuntimeException("Unable to batch-read ranges", e);
+        }
+    }
+
+    public void createSheetIfMissing(String title) {
+        if (sheetIdsByTitle().containsKey(title)) {
+            return;
+        }
+        Request request = new Request().setAddSheet(new AddSheetRequest()
+                .setProperties(new SheetProperties().setTitle(title)));
+        try {
+            service.spreadsheets()
+                    .batchUpdate(spreadsheetId, new BatchUpdateSpreadsheetRequest().setRequests(List.of(request)))
+                    .execute();
+        } catch (IOException e) {
+            throw new RuntimeException("Unable to create sheet tab: " + title, e);
         }
     }
 
