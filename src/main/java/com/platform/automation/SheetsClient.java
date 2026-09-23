@@ -25,6 +25,7 @@ import com.google.auth.oauth2.GoogleCredentials;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.security.GeneralSecurityException;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -189,6 +190,73 @@ public class SheetsClient {
         if (sheetId == null) {
             throw new RuntimeException("No such sheet tab: " + sheetTitle);
         }
+        Request request = checkboxRequest(sheetId, startRowIndex, endRowIndexExclusive, columnIndex);
+        try {
+            service.spreadsheets()
+                    .batchUpdate(spreadsheetId, new BatchUpdateSpreadsheetRequest().setRequests(List.of(request)))
+                    .execute();
+        } catch (IOException e) {
+            throw new RuntimeException("Unable to insert checkboxes on tab: " + sheetTitle, e);
+        }
+    }
+
+    /**
+     * Same as {@link #insertCheckboxes}, but only on the given (not necessarily contiguous) row
+     * indices - e.g. the subset of a tab's test-case rows that are actually automated in Java, so
+     * a RUN checkbox only appears where checking it would do something. Contiguous runs of rows
+     * are coalesced into a single range each, and all of them are sent in one batchUpdate call to
+     * stay within the Sheets API's write-request budget regardless of how many rows match.
+     */
+    public void insertCheckboxesForRows(String sheetTitle, List<Integer> rowIndices, int columnIndex) {
+        if (rowIndices.isEmpty()) {
+            return;
+        }
+        Integer sheetId = sheetIdsByTitle().get(sheetTitle);
+        if (sheetId == null) {
+            throw new RuntimeException("No such sheet tab: " + sheetTitle);
+        }
+        List<Request> requests = new ArrayList<>();
+        for (int[] range : toContiguousRanges(rowIndices)) {
+            requests.add(checkboxRequest(sheetId, range[0], range[1], columnIndex));
+        }
+        try {
+            service.spreadsheets()
+                    .batchUpdate(spreadsheetId, new BatchUpdateSpreadsheetRequest().setRequests(requests))
+                    .execute();
+        } catch (IOException e) {
+            throw new RuntimeException("Unable to insert checkboxes on tab: " + sheetTitle, e);
+        }
+    }
+
+    /**
+     * Removes any data validation (in particular, a RUN checkbox) from every cell in the given
+     * row range of one column, leaving the cells as plain empty cells. Used to walk back a
+     * checkbox that was previously added to a row which has since turned out to have no Java
+     * automation behind it, so RUN checkboxes only ever appear where checking one would do
+     * something.
+     */
+    public void clearCheckboxes(String sheetTitle, int startRowIndex, int endRowIndexExclusive, int columnIndex) {
+        Integer sheetId = sheetIdsByTitle().get(sheetTitle);
+        if (sheetId == null) {
+            throw new RuntimeException("No such sheet tab: " + sheetTitle);
+        }
+        GridRange range = new GridRange()
+                .setSheetId(sheetId)
+                .setStartRowIndex(startRowIndex)
+                .setEndRowIndex(endRowIndexExclusive)
+                .setStartColumnIndex(columnIndex)
+                .setEndColumnIndex(columnIndex + 1);
+        Request request = new Request().setSetDataValidation(new SetDataValidationRequest().setRange(range));
+        try {
+            service.spreadsheets()
+                    .batchUpdate(spreadsheetId, new BatchUpdateSpreadsheetRequest().setRequests(List.of(request)))
+                    .execute();
+        } catch (IOException e) {
+            throw new RuntimeException("Unable to clear checkboxes on tab: " + sheetTitle, e);
+        }
+    }
+
+    private Request checkboxRequest(int sheetId, int startRowIndex, int endRowIndexExclusive, int columnIndex) {
         GridRange range = new GridRange()
                 .setSheetId(sheetId)
                 .setStartRowIndex(startRowIndex)
@@ -199,14 +267,33 @@ public class SheetsClient {
                 .setCondition(new BooleanCondition().setType("BOOLEAN"))
                 .setStrict(true)
                 .setShowCustomUi(true);
-        Request request = new Request().setSetDataValidation(new SetDataValidationRequest().setRange(range).setRule(rule));
-        try {
-            service.spreadsheets()
-                    .batchUpdate(spreadsheetId, new BatchUpdateSpreadsheetRequest().setRequests(List.of(request)))
-                    .execute();
-        } catch (IOException e) {
-            throw new RuntimeException("Unable to insert checkboxes on tab: " + sheetTitle, e);
+        return new Request().setSetDataValidation(new SetDataValidationRequest().setRange(range).setRule(rule));
+    }
+
+    /**
+     * Groups sorted-or-not row indices into [start, endExclusive) ranges of consecutive rows, so
+     * a scattered set of matching rows can be expressed as a handful of GridRanges instead of one
+     * API request per row.
+     */
+    private static List<int[]> toContiguousRanges(List<Integer> rowIndices) {
+        List<Integer> sorted = new ArrayList<>(rowIndices);
+        Collections.sort(sorted);
+        List<int[]> ranges = new ArrayList<>();
+        int start = -1;
+        int prev = -1;
+        for (int row : sorted) {
+            if (start == -1) {
+                start = row;
+            } else if (row != prev + 1) {
+                ranges.add(new int[]{start, prev + 1});
+                start = row;
+            }
+            prev = row;
         }
+        if (start != -1) {
+            ranges.add(new int[]{start, prev + 1});
+        }
+        return ranges;
     }
 
     /**
@@ -221,16 +308,7 @@ public class SheetsClient {
         if (sheetId == null) {
             throw new RuntimeException("No such sheet tab: " + sheetTitle);
         }
-        GridRange range = new GridRange()
-                .setSheetId(sheetId)
-                .setStartRowIndex(startRowIndex)
-                .setEndRowIndex(endRowIndexExclusive)
-                .setStartColumnIndex(columnIndex)
-                .setEndColumnIndex(columnIndex + 1);
-        Request request = new Request().setRepeatCell(new RepeatCellRequest()
-                .setRange(range)
-                .setCell(new CellData().setUserEnteredFormat(new CellFormat()))
-                .setFields("userEnteredFormat.numberFormat"));
+        Request request = clearNumberFormatRequest(sheetId, startRowIndex, endRowIndexExclusive, columnIndex);
         try {
             service.spreadsheets()
                     .batchUpdate(spreadsheetId, new BatchUpdateSpreadsheetRequest().setRequests(List.of(request)))
@@ -238,6 +316,42 @@ public class SheetsClient {
         } catch (IOException e) {
             throw new RuntimeException("Unable to clear number format on tab: " + sheetTitle, e);
         }
+    }
+
+    /** Same as {@link #clearNumberFormat}, but only on the given (not necessarily contiguous) row
+     *  indices - see {@link #insertCheckboxesForRows} for why. */
+    public void clearNumberFormatForRows(String sheetTitle, List<Integer> rowIndices, int columnIndex) {
+        if (rowIndices.isEmpty()) {
+            return;
+        }
+        Integer sheetId = sheetIdsByTitle().get(sheetTitle);
+        if (sheetId == null) {
+            throw new RuntimeException("No such sheet tab: " + sheetTitle);
+        }
+        List<Request> requests = new ArrayList<>();
+        for (int[] range : toContiguousRanges(rowIndices)) {
+            requests.add(clearNumberFormatRequest(sheetId, range[0], range[1], columnIndex));
+        }
+        try {
+            service.spreadsheets()
+                    .batchUpdate(spreadsheetId, new BatchUpdateSpreadsheetRequest().setRequests(requests))
+                    .execute();
+        } catch (IOException e) {
+            throw new RuntimeException("Unable to clear number format on tab: " + sheetTitle, e);
+        }
+    }
+
+    private Request clearNumberFormatRequest(int sheetId, int startRowIndex, int endRowIndexExclusive, int columnIndex) {
+        GridRange range = new GridRange()
+                .setSheetId(sheetId)
+                .setStartRowIndex(startRowIndex)
+                .setEndRowIndex(endRowIndexExclusive)
+                .setStartColumnIndex(columnIndex)
+                .setEndColumnIndex(columnIndex + 1);
+        return new Request().setRepeatCell(new RepeatCellRequest()
+                .setRange(range)
+                .setCell(new CellData().setUserEnteredFormat(new CellFormat()))
+                .setFields("userEnteredFormat.numberFormat"));
     }
 
     public void updateCell(String sheetTitle, int rowIndex, int columnIndex, String value) {

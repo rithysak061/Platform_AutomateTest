@@ -99,7 +99,10 @@ public class SheetRunnerAgent {
             List<Object> row = rows.get(rowIndex);
             String testCaseId = TestCaseSheetLayout.cell(row, layout.testCaseIdCol());
             if (testCaseId.isEmpty()) {
-                break; // end of this tab's test case block
+                // Not the end of the block - a handful of rows (a currency-divider row, a data
+                // row missing its ID) can be blank in the middle of an otherwise populated tab.
+                // The loop bound (rows.size()) already reflects the real end of content.
+                continue;
             }
             if (!"TRUE".equalsIgnoreCase(TestCaseSheetLayout.cell(row, layout.runCol()))) {
                 continue;

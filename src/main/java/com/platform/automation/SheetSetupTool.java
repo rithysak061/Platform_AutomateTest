@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -13,9 +14,12 @@ import java.util.Set;
  * One-off tool that wires up each tab listed in sheet.watchedTabs for Run-button automation:
  * finds that tab's real "TEST CASE ID" header row (which sits below a summary banner, not on
  * row 1), adds the RUN / AUTOMATION STATUS / LAST RUN / REPORT columns next to it if missing,
- * and turns the RUN column into checkboxes for every test case row. Safe to re-run - existing
- * columns and checkboxes are left as-is. Also (re)builds the "Test Suite Automate" dashboard tab
- * listing every test-case tab in the whole spreadsheet, regardless of sheet.watchedTabs.
+ * and turns the RUN column into checkboxes only for the test case rows that are actually
+ * automated in Java (per TestData/TestCaseAutomationMap.csv) - a checkbox on a row with no
+ * automation behind it would just be dead UI. Safe to re-run: re-running after adding a new
+ * automated test case adds that row's checkbox; re-running after removing one clears it. Also
+ * (re)builds the "Test Suite Automate" dashboard tab listing every test-case tab in the whole
+ * spreadsheet, regardless of sheet.watchedTabs.
  *   mvn compile exec:java -Dexec.mainClass=com.platform.automation.SheetSetupTool
  */
 public class SheetSetupTool {
@@ -24,9 +28,10 @@ public class SheetSetupTool {
         String spreadsheetId = ConfigReader.get("sheet.spreadsheetId");
         String credentialsPath = ConfigReader.get("sheet.credentialsPath");
         SheetsClient client = new SheetsClient(spreadsheetId, credentialsPath);
+        Map<String, TestCaseMapping> mappings = TestCaseMapping.loadAll();
 
         for (String tab : watchedTabs()) {
-            setupTab(client, tab);
+            setupTab(client, tab, mappings);
         }
 
         setupMasterSheet(client);
@@ -39,7 +44,7 @@ public class SheetSetupTool {
                 .toList();
     }
 
-    private static void setupTab(SheetsClient client, String tab) {
+    private static void setupTab(SheetsClient client, String tab, Map<String, TestCaseMapping> mappings) {
         List<List<Object>> rows = client.readRange("'" + tab + "'!A1:Z300");
         Optional<TestCaseSheetLayout> layoutOpt = TestCaseSheetLayout.locate(rows);
         if (layoutOpt.isEmpty()) {
@@ -64,16 +69,30 @@ public class SheetSetupTool {
         int reportCol = ensureColumn(client, tab, layout.headerRowIndex(), header, TestCaseSheetLayout.COL_REPORT);
 
         int dataStart = layout.headerRowIndex() + 1;
-        int dataEnd = dataStart;
-        while (dataEnd < rows.size() && !TestCaseSheetLayout.cell(rows.get(dataEnd), layout.testCaseIdCol()).isEmpty()) {
-            dataEnd++;
+        // rows.size() already reflects the last row with any content in A1:Z (the Sheets API
+        // trims trailing fully-empty rows from a range read), so it's a reliable end-of-block
+        // marker even though a handful of individual rows in between - a currency-divider row,
+        // a data row someone forgot to fill in a TEST CASE ID for - can have a blank ID cell.
+        int dataEnd = Math.max(dataStart, rows.size());
+
+        List<Integer> automatedRows = new ArrayList<>();
+        for (int r = dataStart; r < dataEnd; r++) {
+            String testCaseId = TestCaseSheetLayout.cell(rows.get(r), layout.testCaseIdCol());
+            if (!testCaseId.isEmpty() && mappings.containsKey(TestCaseMapping.normalize(testCaseId))) {
+                automatedRows.add(r);
+            }
         }
+
         if (dataEnd > dataStart) {
-            client.insertCheckboxes(tab, dataStart, dataEnd, runCol);
+            // Clear first so a row that used to be automated but no longer is (mapping removed,
+            // or the tab re-scanned after a code change) loses its checkbox instead of keeping a
+            // stale one, then re-add checkboxes only where there's a Java test behind them.
+            client.clearCheckboxes(tab, dataStart, dataEnd, runCol);
+            client.insertCheckboxesForRows(tab, automatedRows, runCol);
             // Without this, a =HYPERLINK(...) written into a cell that previously held a plain
             // filename can render as literal text instead of a clickable link - see
             // SheetsClient.clearNumberFormat.
-            client.clearNumberFormat(tab, dataStart, dataEnd, reportCol);
+            client.clearNumberFormatForRows(tab, automatedRows, reportCol);
         }
 
         int suiteRow = layout.suiteRowIndex();
@@ -89,7 +108,8 @@ public class SheetSetupTool {
         }
 
         System.out.println("Wired up \"" + tab + "\": header on row " + (layout.headerRowIndex() + 1)
-                + ", " + (dataEnd - dataStart) + " test case row(s), suite-run checkbox on row "
+                + ", " + automatedRows.size() + " of " + (dataEnd - dataStart)
+                + " test case row(s) automated, suite-run checkbox on row "
                 + (suiteRow + 1) + ".");
     }
 

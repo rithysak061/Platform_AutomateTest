@@ -54,9 +54,18 @@ public class ExtentTestNGListener implements ITestListener {
 
     @Override
     public void onTestSkipped(ITestResult result) {
-        ExtentTest test = getExtent().createTest(result.getMethod().getMethodName(), result.getMethod().getDescription());
-        test.log(Status.SKIP, "Test skipped");
-        testMap.put(testKey(result), test);
+        // Reuse the node onTestStart already created (and that the test method has been logging
+        // steps into) rather than creating a second, empty one - otherwise the report ends up
+        // with two disconnected entries for the same test: the real one with no final status,
+        // and an orphan "SKIP" entry with none of the actual context.
+        ExtentTest test = testMap.get(testKey(result));
+        if (test == null) {
+            test = getExtent().createTest(result.getMethod().getMethodName(), result.getMethod().getDescription());
+            testMap.put(testKey(result), test);
+        }
+        String reason = result.getThrowable() != null ? result.getThrowable().getMessage() : "Test skipped";
+        test.log(Status.SKIP, reason);
+        ExtentTestManager.unload();
     }
 
     @Override
