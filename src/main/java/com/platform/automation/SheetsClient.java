@@ -367,6 +367,57 @@ public class SheetsClient {
         }
     }
 
+    /**
+     * Removes any cell merges within the given range. Writing to a non-anchor cell of a merged
+     * region is silently ignored by the Sheets API (the write succeeds but the value never shows
+     * up), so this is worth calling before writing into a range that might carry leftover merge
+     * formatting from an earlier version of the tab - a values.get read reports 0 rows for a
+     * sheet with no cell values, but doesn't reveal that kind of leftover cell formatting.
+     */
+    public void unmergeCells(String sheetTitle, int startRowIndex, int endRowIndexExclusive,
+                              int startColumnIndex, int endColumnIndexExclusive) {
+        Integer sheetId = sheetIdsByTitle().get(sheetTitle);
+        if (sheetId == null) {
+            throw new RuntimeException("No such sheet tab: " + sheetTitle);
+        }
+        GridRange range = new GridRange()
+                .setSheetId(sheetId)
+                .setStartRowIndex(startRowIndex)
+                .setEndRowIndex(endRowIndexExclusive)
+                .setStartColumnIndex(startColumnIndex)
+                .setEndColumnIndex(endColumnIndexExclusive);
+        Request request = new Request().setUnmergeCells(new com.google.api.services.sheets.v4.model.UnmergeCellsRequest().setRange(range));
+        try {
+            service.spreadsheets()
+                    .batchUpdate(spreadsheetId, new BatchUpdateSpreadsheetRequest().setRequests(List.of(request)))
+                    .execute();
+        } catch (IOException e) {
+            throw new RuntimeException("Unable to unmerge cells on tab: " + sheetTitle, e);
+        }
+    }
+
+    /**
+     * Writes a whole 2D block of values starting at (startRowIndex, startColumnIndex) in a single
+     * API call, instead of one updateCell call per cell - the latter blows through the Sheets
+     * API's 60-writes/minute quota for anything beyond a couple dozen cells.
+     */
+    public void writeRange(String sheetTitle, int startRowIndex, int startColumnIndex, List<List<Object>> values) {
+        if (values.isEmpty()) {
+            return;
+        }
+        String startCell = toColumnLetter(startColumnIndex) + (startRowIndex + 1);
+        String range = "'" + sheetTitle + "'!" + startCell;
+        ValueRange body = new ValueRange().setValues(values);
+        try {
+            service.spreadsheets().values()
+                    .update(spreadsheetId, range, body)
+                    .setValueInputOption("USER_ENTERED")
+                    .execute();
+        } catch (IOException e) {
+            throw new RuntimeException("Unable to write range starting at " + range, e);
+        }
+    }
+
     private static String toColumnLetter(int columnIndex) {
         StringBuilder column = new StringBuilder();
         int n = columnIndex + 1;
